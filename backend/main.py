@@ -17,6 +17,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from PIL import Image
 from pydantic import BaseModel, Field
 
 MEDIA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".webm", ".mov", ".mkv"}
@@ -26,6 +27,10 @@ DEFAULT_TAGS = {"version": 1, "groups": [], "tags": []}
 
 class TagsUpdate(BaseModel):
     tags: list[str] = Field(default_factory=list)
+
+
+class CommentUpdate(BaseModel):
+    comment: str = ""
 
 
 class TagCreate(BaseModel):
@@ -132,6 +137,16 @@ def public_asset(asset: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in asset.items() if key != "path"}
 
 
+def is_animated_gif(path: Path) -> bool:
+    if path.suffix.lower() != ".gif":
+        return False
+    try:
+        with Image.open(path) as image:
+            return bool(getattr(image, "is_animated", False) and image.n_frames > 1)
+    except (OSError, ValueError):
+        return False
+
+
 def scan_library(root: Path) -> None:
     _, tags_path = library_paths(root)
     try:
@@ -152,18 +167,19 @@ def scan_library(root: Path) -> None:
             continue
         relative = path.relative_to(root).as_posix()
         runtime_id = "runtime-" + hashlib.sha256(relative.encode()).hexdigest()[:20]
-        asset_id, tags_for_asset, errors = runtime_id, [], []
+        asset_id, tags_for_asset, comment, errors = runtime_id, [], "", []
         meta_path = Path(f"{path}.meta.json")
         if meta_path.exists():
             try:
                 metadata = read_json(meta_path)
                 if not isinstance(metadata, dict) or metadata.get("version") != 1:
                     errors.append("Unsupported metadata version")
-                elif not isinstance(metadata.get("id"), str) or not isinstance(metadata.get("tags"), list):
+                elif not isinstance(metadata.get("id"), str) or not isinstance(metadata.get("tags"), list) or ("comment" in metadata and not isinstance(metadata["comment"], str)):
                     errors.append("Invalid metadata structure")
                 else:
                     asset_id = metadata["id"]
                     tags_for_asset = [tag for tag in metadata["tags"] if isinstance(tag, str)]
+                    comment = metadata.get("comment", "")
                     unknown = [tag for tag in tags_for_asset if tag not in tag_ids]
                     if unknown:
                         errors.append("Unknown tag ID: " + ", ".join(unknown))
@@ -179,7 +195,8 @@ def scan_library(root: Path) -> None:
         assets[asset_key] = {
             "id": asset_key, "runtimeId": runtime_id, "relativePath": relative, "name": path.name,
             "kind": "image" if path.suffix.lower() in IMAGE_EXTENSIONS else "video", "tags": tags_for_asset,
-            "untagged": not tags_for_asset, "errors": errors, "path": path,
+            "isAnimatedGif": is_animated_gif(path), "addedAt": path.stat().st_ctime,
+            "comment": comment, "untagged": not tags_for_asset, "errors": errors, "path": path,
         }
     for sidecar in root.rglob("*.meta.json"):
         if ".library" in sidecar.relative_to(root).parts:
@@ -294,7 +311,22 @@ def update_asset_tags(asset_id: str, body: TagsUpdate) -> dict[str, Any]:
     if len(body.tags) != len(set(body.tags)) or not set(body.tags).issubset(available):
         raise HTTPException(400, "Tags must be unique known tag IDs")
     new_id = asset_id if not asset_id.startswith("runtime-") else str(uuid.uuid4())
-    metadata = {"version": 1, "id": new_id, "tags": body.tags}
+    metadata = {"version": 1, "id": new_id, "tags": body.tags, "comment": asset["comment"]}
+    atomic_json_write(Path(f"{asset['path']}.meta.json"), metadata)
+    scan_library(root)
+    return public_asset(state.assets[new_id])
+
+
+@app.put("/api/assets/{asset_id}/comment")
+def update_asset_comment(asset_id: str, body: CommentUpdate) -> dict[str, Any]:
+    root = require_library()
+    asset = state.assets.get(asset_id)
+    if not asset or any(error.startswith("Duplicate UUID") for error in asset["errors"]):
+        raise HTTPException(404, "Asset unavailable for editing")
+    if len(body.comment) > 10_000:
+        raise HTTPException(400, "Comment is too long")
+    new_id = asset_id if not asset_id.startswith("runtime-") else str(uuid.uuid4())
+    metadata = {"version": 1, "id": new_id, "tags": asset["tags"], "comment": body.comment}
     atomic_json_write(Path(f"{asset['path']}.meta.json"), metadata)
     scan_library(root)
     return public_asset(state.assets[new_id])
