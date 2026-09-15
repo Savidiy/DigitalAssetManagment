@@ -4,7 +4,7 @@ type Tag = { id: string; name: string; groups: string[]; color?: string | null; 
 type Group = { id: string; name: string; parentId?: string | null };
 type Asset = { id: string; name: string; relativePath: string; kind: 'image' | 'video'; isAnimatedGif: boolean; addedAt: number; comment: string; tags: string[]; untagged: boolean; errors: string[] };
 type Library = { open?: boolean; path?: string; name?: string; initialized?: boolean; cancelled?: boolean; errors?: string[] };
-type UiSettings = { selectedTags?: string[]; includedGroups?: string[]; missingGroups?: string[]; untagged?: boolean; mediaKinds?: Asset['kind'][]; animatedGifs?: boolean; sortBy?: 'name' | 'addedAt'; sortDirection?: 'asc' | 'desc'; search?: string; cardSize?: number; detailsWidth?: number; videoVolume?: number };
+type UiSettings = { selectedAssetId?: string | null; selectedTags?: string[]; includedGroups?: string[]; missingGroups?: string[]; untagged?: boolean; mediaKinds?: Asset['kind'][]; animatedGifs?: boolean; sortBy?: 'name' | 'addedAt'; sortDirection?: 'asc' | 'desc'; search?: string; cardSize?: number; detailsWidth?: number; videoVolume?: number };
 const api = '/api';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -43,6 +43,7 @@ export default function App() {
   const [resizeStart, setResizeStart] = useState<{ x: number; width: number } | null>(null);
   const [stickyAssetId, setStickyAssetId] = useState<string | null>(null);
   const [tagSearch, setTagSearch] = useState('');
+  const [managerTagSearch, setManagerTagSearch] = useState('');
   const [commentDraft, setCommentDraft] = useState('');
   const [commentOpen, setCommentOpen] = useState(false);
   const [assetCollapsedGroups, setAssetCollapsedGroups] = useState<string[]>([]);
@@ -53,12 +54,14 @@ export default function App() {
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const pendingAssetTags = useRef(new Map<string, string[]>());
   const tagSaveTimers = useRef(new Map<string, number>());
+  const managerRef = useRef<HTMLElement | null>(null);
 
   const restoreUiSettings = (path: string) => {
     if (restoredLibraryPath.current === path) return;
     restoredLibraryPath.current = path;
     let saved: UiSettings = {};
     try { saved = JSON.parse(localStorage.getItem(`reference-library-ui:${path}`) || '{}') as UiSettings; } catch { /* Use defaults if local storage is malformed. */ }
+    setSelected(typeof saved.selectedAssetId === 'string' ? saved.selectedAssetId : null);
     setSelectedTags(Array.isArray(saved.selectedTags) ? saved.selectedTags : []);
     setIncludedGroups(Array.isArray(saved.includedGroups) ? saved.includedGroups : []);
     setMissingGroups(Array.isArray(saved.missingGroups) ? saved.missingGroups : []);
@@ -85,9 +88,9 @@ export default function App() {
   const showError = (error: unknown) => setNotice(error instanceof Error ? error.message : 'Unexpected error');
   useEffect(() => {
     if (!library?.path || restoredLibraryPath.current !== library.path) return;
-    const settings: UiSettings = { selectedTags, includedGroups, missingGroups, untagged, mediaKinds, animatedGifs, sortBy, sortDirection, search, cardSize, detailsWidth, videoVolume };
+    const settings: UiSettings = { selectedAssetId: selected, selectedTags, includedGroups, missingGroups, untagged, mediaKinds, animatedGifs, sortBy, sortDirection, search, cardSize, detailsWidth, videoVolume };
     localStorage.setItem(`reference-library-ui:${library.path}`, JSON.stringify(settings));
-  }, [library?.path, selectedTags, includedGroups, missingGroups, untagged, mediaKinds, animatedGifs, sortBy, sortDirection, search, cardSize, detailsWidth, videoVolume]);
+  }, [library?.path, selected, selectedTags, includedGroups, missingGroups, untagged, mediaKinds, animatedGifs, sortBy, sortDirection, search, cardSize, detailsWidth, videoVolume]);
 
   const choose = async () => {
     try {
@@ -115,6 +118,7 @@ export default function App() {
   const tagById = new Map(tags.map(tag => [tag.id, tag]));
   const groupTree = (groupId: string): string[] => [groupId, ...groups.filter(group => group.parentId === groupId).flatMap(group => groupTree(group.id))];
   const tagSearchTerm = tagSearch.trim().toLowerCase();
+  const managerTagSearchTerm = managerTagSearch.trim().toLowerCase();
   const groupMatchesTagSearch = (group: Group) => !tagSearchTerm || group.name.toLowerCase().includes(tagSearchTerm) || tags.some(tag => tag.name.toLowerCase().includes(tagSearchTerm) && tag.groups.some(id => groupTree(group.id).includes(id)));
   const visibleAssets = useMemo(() => assets.filter(asset => {
     const matchingTags = selectedTags.every(tag => asset.tags.includes(tag));
@@ -258,6 +262,46 @@ export default function App() {
     try { await saveTaxonomyOrder(groups, nextTags); setTags(nextTags); } catch (error) { showError(error); }
     finally { setDragTagId(null); }
   };
+  const sortTagsByFolder = async () => {
+    const groupOrder = new Map(groups.map((group, index) => [group.id, index]));
+    const folderRank = (tag: Tag) => Math.min(...tag.groups.map(groupId => groupOrder.get(groupId) ?? Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER);
+    const nextTags = [...tags].sort((left, right) => {
+      const byFolder = folderRank(left) - folderRank(right);
+      return byFolder || left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' });
+    });
+    try {
+      await saveTaxonomyOrder(groups, nextTags);
+      setTags(nextTags);
+    } catch (error) { showError(error); }
+  };
+  useEffect(() => {
+    if (!managerOpen || !managerRef.current) return;
+    const manager = managerRef.current;
+    let frame = 0;
+    const positionColumns = () => {
+      frame = 0;
+      manager.querySelectorAll<HTMLElement>('.manager-grid > .manager-column').forEach(column => {
+        const shift = Math.max(0, manager.scrollTop + manager.getBoundingClientRect().top + manager.clientHeight - column.offsetHeight - column.offsetTop);
+        column.style.transform = shift ? `translateY(${shift}px)` : '';
+      });
+    };
+    const schedulePosition = () => {
+      if (!frame) frame = window.requestAnimationFrame(positionColumns);
+    };
+    const observer = new ResizeObserver(schedulePosition);
+    observer.observe(manager);
+    manager.querySelectorAll<HTMLElement>('.manager-grid > .manager-column').forEach(column => observer.observe(column));
+    manager.addEventListener('scroll', schedulePosition, { passive: true });
+    window.addEventListener('resize', schedulePosition);
+    schedulePosition();
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      manager.removeEventListener('scroll', schedulePosition);
+      window.removeEventListener('resize', schedulePosition);
+      manager.querySelectorAll<HTMLElement>('.manager-grid > .manager-column').forEach(column => { column.style.transform = ''; });
+    };
+  }, [managerOpen, groups.length, tags.length, draft.id]);
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement) return;
@@ -305,7 +349,7 @@ export default function App() {
       <div className="details-resizer" onPointerDown={beginDetailsResize} onPointerMove={resizeDetails} onPointerUp={() => setResizeStart(null)} />
       <aside className="details">{current ? <><div className="preview">{current.kind === 'image' ? <img src={`${api}/media/${encodeURIComponent(current.id)}`} alt={current.name} /> : <video ref={previewVideoRef} controls autoPlay loop preload="auto" onCanPlay={event => { event.currentTarget.volume = videoVolume; void event.currentTarget.play().catch(() => {}); }} onVolumeChange={event => setVideoVolume(event.currentTarget.volume)} src={`${api}/media/${encodeURIComponent(current.id)}`} />}</div><div className="asset-title"><div><h2>{current.name}</h2><p className="path">{current.relativePath}</p></div><button className={`comment-toggle ${commentOpen ? 'active' : ''}`} title="Show or edit comment" onClick={() => setCommentOpen(value => !value)}>💬</button></div>{commentOpen && <section className="asset-comment"><textarea className="comment-editor" value={commentDraft} onChange={event => setCommentDraft(event.target.value)} placeholder="Add a note about this reference" /><button className="secondary comment-save" onClick={saveComment} disabled={commentDraft === current.comment}>Save comment</button></section>}<h2>Tags</h2><div className="asset-tag-editor">{groups.filter(group => !group.parentId).map(group => renderAssetTagGroup(group))}{tags.filter(tag => !tag.groups.length && (!tagSearchTerm || tag.name.toLowerCase().includes(tagSearchTerm))).map(tag => <label key={tag.id}><input type="checkbox" checked={current.tags.includes(tag.id)} onChange={() => toggleAssetTag(tag.id)} /> <i className="tag-dot" style={{ background: tag.color || '#777' }} />{tag.icon} {tag.name}</label>)}</div><button className="text-button" onClick={openNewTag}>+ New tag</button>{current.errors.length > 0 && <section className="errors"><h2>Metadata issues</h2>{current.errors.map(error => <p key={error}>{error}</p>)}</section>}</> : <div className="empty">Select an asset to preview and tag it.</div>}</aside>
     </section>
-    {managerOpen && <div className="modal-backdrop" onMouseDown={() => setManagerOpen(false)}><section className="manager" onMouseDown={event => event.stopPropagation()}><div className="manager-head"><div><p className="eyebrow">LIBRARY TAXONOMY</p><h2>Manage tags</h2></div><button className="secondary" onClick={() => setManagerOpen(false)}>Close</button></div><div className="manager-grid"><section><h3>Folders</h3><p className="helper">Drag ⠿ to reorder. Rename a folder, then press Enter or click outside.</p>{groups.map(group => <div className="group-row" key={group.id} draggable onDragStart={() => setDragGroupId(group.id)} onDragOver={event => event.preventDefault()} onDrop={() => moveGroup(group.id)}><span className="drag-handle" title="Drag to reorder">⠿</span><input aria-label={`Rename folder ${group.name}`} className="group-name" defaultValue={group.name} title="Rename folder" onBlur={event => updateGroup(group, event.target.value)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /><select value={group.parentId || ''} onChange={event => updateGroup(group, group.name, event.target.value || null)}><option value="">Top level</option>{groups.filter(item => item.id !== group.id).map(option => <option value={option.id} key={option.id}>{option.name}</option>)}</select><button className="delete-small" title="Delete folder" onClick={() => deleteGroup(group)}>×</button></div>)}<div className="new-group"><input value={newGroupName} onChange={event => setNewGroupName(event.target.value)} placeholder="New folder" /><select value={newGroupParent} onChange={event => setNewGroupParent(event.target.value)}><option value="">Top level</option>{groups.map(group => <option value={group.id} key={group.id}>{group.name}</option>)}</select><button onClick={createGroup}>Add folder</button></div></section><section><div className="tag-list-head"><h3>Tags</h3><button onClick={openNewTag}>New tag</button></div><p className="helper">Drag ⠿ to reorder. Select a tag to rename or edit it.</p><div className="manage-tag-list">{tags.map(tag => <button key={tag.id} draggable onDragStart={() => setDragTagId(tag.id)} onDragOver={event => event.preventDefault()} onDrop={() => moveTag(tag.id)} className={draft.id === tag.id ? 'active' : ''} title={`Edit or rename ${tag.name}`} onClick={() => editTag(tag)}><span className="drag-handle" title="Drag to reorder">⠿</span><i className="tag-dot" style={{ background: tag.color || '#777' }} />{tag.icon} {tag.name}<span className="edit-mark">✎</span><span className="copy-mark" role="button" title="Copy tag" onClick={event => { event.stopPropagation(); copyTag(tag); }}>⧉</span></button>)}</div></section><section className="tag-form"><h3>{draft.id ? 'Rename / edit tag' : 'New tag'}</h3><label>Tag name<input value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} placeholder="e.g. Blonde" /></label><label>Icon <span className="helper">optional emoji or symbol</span><input value={draft.icon || ''} onChange={event => setDraft({ ...draft, icon: event.target.value })} placeholder="Optional" /></label><label>Color<input type="color" value={draft.color || '#7c5cff'} onChange={event => setDraft({ ...draft, color: event.target.value })} /></label><fieldset><legend>Folders</legend>{groups.map(group => <label key={group.id}><input type="checkbox" checked={draft.groups.includes(group.id)} onChange={() => setDraft({ ...draft, groups: draft.groups.includes(group.id) ? draft.groups.filter(id => id !== group.id) : [...draft.groups, group.id] })} /> {group.name}</label>)}</fieldset><div className="tag-actions"><button onClick={() => saveTag(false)}>{draft.id ? 'Save changes' : 'Create tag'}</button>{!draft.id && <button className="secondary" onClick={() => saveTag(true)}>Create & keep fields</button>}</div>{draft.id && <button className="danger delete-tag" onClick={deleteTag}>Delete tag</button>}</section></div></section></div>}
+    {managerOpen && <div className="modal-backdrop" onMouseDown={() => setManagerOpen(false)}><section className="manager" ref={managerRef} onMouseDown={event => event.stopPropagation()}><div className="manager-head"><div><p className="eyebrow">LIBRARY TAXONOMY</p><h2>Manage tags</h2></div><button className="secondary" onClick={() => setManagerOpen(false)}>Close</button></div><div className="manager-grid"><section className="manager-column"><h3>Folders</h3><p className="helper">Drag ⠿ to reorder. Rename a folder, then press Enter or click outside.</p>{groups.map(group => <div className="group-row" key={group.id} draggable onDragStart={() => setDragGroupId(group.id)} onDragOver={event => event.preventDefault()} onDrop={() => moveGroup(group.id)}><span className="drag-handle" title="Drag to reorder">⠿</span><input aria-label={`Rename folder ${group.name}`} className="group-name" defaultValue={group.name} title="Rename folder" onBlur={event => updateGroup(group, event.target.value)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /><select value={group.parentId || ''} onChange={event => updateGroup(group, group.name, event.target.value || null)}><option value="">Top level</option>{groups.filter(item => item.id !== group.id).map(option => <option value={option.id} key={option.id}>{option.name}</option>)}</select><button className="delete-small" title="Delete folder" onClick={() => deleteGroup(group)}>×</button></div>)}<div className="new-group"><input value={newGroupName} onChange={event => setNewGroupName(event.target.value)} placeholder="New folder" /><select value={newGroupParent} onChange={event => setNewGroupParent(event.target.value)}><option value="">Top level</option>{groups.map(group => <option value={group.id} key={group.id}>{group.name}</option>)}</select><button onClick={createGroup}>Add folder</button></div></section><section className="manager-column"><div className="tag-list-head"><h3>Tags</h3><div className="manager-tag-filter-wrap"><input className="manager-tag-filter" aria-label="Filter tags by name" value={managerTagSearch} onChange={event => setManagerTagSearch(event.target.value)} placeholder="Filter tags" />{managerTagSearch && <button className="clear-manager-tag-filter" aria-label="Clear tag filter" title="Clear filter" onClick={() => setManagerTagSearch('')}>×</button>}</div><div className="tag-list-actions"><button onClick={sortTagsByFolder} title="Sort tags by folder and name">Sort</button><button className="manager-new-tag" onClick={openNewTag}>New tag</button></div></div><p className="helper">Drag ⠿ to reorder. Select a tag to rename or edit it.</p><div className="manage-tag-list">{tags.filter(tag => !managerTagSearchTerm || tag.name.toLowerCase().includes(managerTagSearchTerm)).map(tag => <button key={tag.id} draggable onDragStart={() => setDragTagId(tag.id)} onDragOver={event => event.preventDefault()} onDrop={() => moveTag(tag.id)} className={draft.id === tag.id ? 'active' : ''} title={`Edit or rename ${tag.name}`} onClick={() => editTag(tag)}><span className="drag-handle" title="Drag to reorder">⠿</span><i className="tag-dot" style={{ background: tag.color || '#777' }} />{tag.icon} {tag.name}<span className="edit-mark">✎</span><span className="copy-mark" role="button" title="Copy tag" onClick={event => { event.stopPropagation(); copyTag(tag); }}>⧉</span></button>)}</div></section><section className="tag-form manager-column"><h3>{draft.id ? 'Rename / edit tag' : 'New tag'}</h3><label>Tag name<input value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} placeholder="e.g. Blonde" /></label><label>Icon <span className="helper">optional emoji or symbol</span><input value={draft.icon || ''} onChange={event => setDraft({ ...draft, icon: event.target.value })} placeholder="Optional" /></label><label>Color<input type="color" value={draft.color || '#7c5cff'} onChange={event => setDraft({ ...draft, color: event.target.value })} /></label><fieldset><legend>Folders</legend>{groups.map(group => <label key={group.id}><input type="checkbox" checked={draft.groups.includes(group.id)} onChange={() => setDraft({ ...draft, groups: draft.groups.includes(group.id) ? draft.groups.filter(id => id !== group.id) : [...draft.groups, group.id] })} /> {group.name}</label>)}</fieldset><div className="tag-actions"><button onClick={() => saveTag(false)}>{draft.id ? 'Save changes' : 'Create tag'}</button>{!draft.id && <button className="secondary" onClick={() => saveTag(true)}>Create & keep fields</button>}</div>{draft.id && <button className="danger delete-tag" onClick={deleteTag}>Delete tag</button>}</section></div></section></div>}
     {issuesOpen && <div className="modal-backdrop" onMouseDown={() => setIssuesOpen(false)}><section className="issues manager" onMouseDown={event => event.stopPropagation()}><div className="manager-head"><h2>Library issues</h2><button className="secondary" onClick={() => setIssuesOpen(false)}>Close</button></div>{library.errors?.map(error => <p key={error}>{error}</p>)}{assets.filter(asset => asset.errors.length).map(asset => <section key={asset.id}><strong>{asset.relativePath}</strong>{asset.errors.map(error => <p key={error}>{error}</p>)}</section>)}</section></div>}
   </main>;
 }
