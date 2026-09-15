@@ -8,9 +8,11 @@ if not exist "%PYTHON_EXE%" (
   echo Creating Python environment...
   python -m venv "%APP_ROOT%.venv"
   if errorlevel 1 goto :error
-  "%PYTHON_EXE%" -m pip install -r "%APP_ROOT%backend\requirements.txt"
-  if errorlevel 1 goto :error
 )
+
+echo Checking Python dependencies...
+"%PYTHON_EXE%" -m pip install -r "%APP_ROOT%backend\requirements.txt"
+if errorlevel 1 goto :error
 
 if not exist "%APP_ROOT%frontend\node_modules" (
   echo Installing frontend dependencies...

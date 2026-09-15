@@ -59,6 +59,11 @@ class GroupUpdate(BaseModel):
     parentId: str | None = None
 
 
+class TaxonomyOrderUpdate(BaseModel):
+    groupIds: list[str]
+    tagIds: list[str]
+
+
 class LibraryState:
     root: Path | None = None
     assets: dict[str, dict[str, Any]] = {}
@@ -233,11 +238,12 @@ def open_library(path: str) -> dict[str, Any]:
 def get_library() -> dict[str, Any]:
     if state.root is None:
         remembered = last_library_path()
-        if remembered and remembered.is_dir():
-            try:
+        try:
+            if remembered and remembered.is_dir():
                 open_library(str(remembered))
-            except HTTPException:
-                pass
+        except (HTTPException, OSError):
+            # A disconnected network/cloud drive must not prevent the app from opening.
+            pass
         if state.root is None:
             return {"open": False}
     config_path, _ = library_paths(state.root)
@@ -445,6 +451,22 @@ def delete_group(group_id: str) -> dict[str, bool]:
     _, tags_path = library_paths(root)
     atomic_json_write(tags_path, state.tags)
     return {"deleted": True}
+
+
+@app.put("/api/taxonomy/order")
+def update_taxonomy_order(body: TaxonomyOrderUpdate) -> dict[str, bool]:
+    root = require_library()
+    groups_by_id = {group.get("id"): group for group in state.tags["groups"]}
+    tags_by_id = {tag.get("id"): tag for tag in state.tags["tags"]}
+    if len(body.groupIds) != len(set(body.groupIds)) or set(body.groupIds) != set(groups_by_id):
+        raise HTTPException(400, "Group order must contain every group exactly once")
+    if len(body.tagIds) != len(set(body.tagIds)) or set(body.tagIds) != set(tags_by_id):
+        raise HTTPException(400, "Tag order must contain every tag exactly once")
+    state.tags["groups"] = [groups_by_id[group_id] for group_id in body.groupIds]
+    state.tags["tags"] = [tags_by_id[tag_id] for tag_id in body.tagIds]
+    _, tags_path = library_paths(root)
+    atomic_json_write(tags_path, state.tags)
+    return {"saved": True}
 
 
 @app.get("/api/media/{asset_id}")
