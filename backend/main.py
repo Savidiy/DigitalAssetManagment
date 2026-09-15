@@ -48,6 +48,10 @@ class TagUpdate(BaseModel):
     icon: str | None = None
 
 
+class TagMerge(BaseModel):
+    targetTagId: str
+
+
 class GroupCreate(BaseModel):
     id: str | None = None
     name: str
@@ -130,6 +134,10 @@ def validate_tag_presentation(color: str | None, icon: str | None) -> tuple[str 
     if normalized_icon and len(normalized_icon) > 12:
         raise HTTPException(400, "Icon must be at most 12 characters")
     return normalized_color, normalized_icon
+
+
+def tag_name_key(name: str) -> str:
+    return " ".join(name.split()).casefold()
 
 
 def require_library() -> Path:
@@ -350,6 +358,8 @@ def create_tag(body: TagCreate) -> dict[str, Any]:
     tag_id = body.id or uuid.uuid4().hex
     if any(tag.get("id") == tag_id for tag in state.tags["tags"]):
         raise HTTPException(409, "Tag ID already exists")
+    if any(tag_name_key(str(tag.get("name", ""))) == tag_name_key(body.name) for tag in state.tags["tags"]):
+        raise HTTPException(409, "A tag with this name already exists")
     groups = {group.get("id") for group in state.tags["groups"]}
     if not set(body.groups).issubset(groups):
         raise HTTPException(400, "Unknown group ID")
@@ -369,6 +379,8 @@ def update_tag(tag_id: str, body: TagUpdate) -> dict[str, Any]:
     tag = next((item for item in state.tags["tags"] if item.get("id") == tag_id), None)
     if tag is None:
         raise HTTPException(404, "Tag not found")
+    if any(item.get("id") != tag_id and tag_name_key(str(item.get("name", ""))) == tag_name_key(body.name) for item in state.tags["tags"]):
+        raise HTTPException(409, "A tag with this name already exists; merge it instead")
     group_ids = {group.get("id") for group in state.tags["groups"]}
     if not body.name.strip() or not set(body.groups).issubset(group_ids):
         raise HTTPException(400, "Tag name and group IDs are invalid")
@@ -377,6 +389,30 @@ def update_tag(tag_id: str, body: TagUpdate) -> dict[str, Any]:
     _, tags_path = library_paths(root)
     atomic_json_write(tags_path, state.tags)
     return tag
+
+
+@app.post("/api/tags/{tag_id}/merge")
+def merge_tag(tag_id: str, body: TagMerge) -> dict[str, str]:
+    root = require_library()
+    source = next((item for item in state.tags["tags"] if item.get("id") == tag_id), None)
+    target = next((item for item in state.tags["tags"] if item.get("id") == body.targetTagId), None)
+    if source is None or target is None or source is target:
+        raise HTTPException(400, "Choose two different existing tags")
+    affected = [asset for asset in state.assets.values() if tag_id in asset["tags"]]
+    if any(any(error.startswith("Duplicate UUID") for error in asset["errors"]) for asset in affected):
+        raise HTTPException(409, "Resolve duplicate UUID metadata before merging")
+    try:
+        for asset in affected:
+            merged_tags = list(dict.fromkeys(body.targetTagId if value == tag_id else value for value in asset["tags"]))
+            metadata = {"version": 1, "id": asset["id"], "tags": merged_tags, "comment": asset["comment"]}
+            atomic_json_write(Path(f"{asset['path']}.meta.json"), metadata)
+        state.tags["tags"] = [item for item in state.tags["tags"] if item.get("id") != tag_id]
+        _, tags_path = library_paths(root)
+        atomic_json_write(tags_path, state.tags)
+    except OSError as error:
+        raise HTTPException(500, f"Could not merge tags: {error}")
+    scan_library(root)
+    return {"targetTagId": body.targetTagId}
 
 
 @app.post("/api/tag-groups")
