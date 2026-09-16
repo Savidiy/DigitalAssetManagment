@@ -571,7 +571,8 @@ def update_taxonomy_order(body: TaxonomyOrderUpdate) -> dict[str, bool]:
 @app.get("/api/media/{asset_id}")
 def media(asset_id: str):
     require_library()
-    asset = state.assets.get(asset_id)
+    # The UI uses runtimeId so a first metadata write cannot replace the media URL.
+    asset = find_asset(asset_id)
     if not asset:
         raise HTTPException(404, "Asset not found")
     return FileResponse(asset["path"])
@@ -586,10 +587,11 @@ def thumbnail_path(asset_id: str) -> Path:
 
 @app.get("/api/thumbnails/{asset_id}")
 def thumbnail(asset_id: str):
-    asset = state.assets.get(asset_id)
+    asset = find_asset(asset_id)
     if not asset or asset["kind"] != "video":
         raise HTTPException(404, "Video not found")
-    output = thumbnail_path(asset_id)
+    # Keep using an existing thumbnail cache after a temporary asset ID becomes a UUID.
+    output = thumbnail_path(asset["id"])
     if not output.exists():
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
