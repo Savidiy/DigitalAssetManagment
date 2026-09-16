@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -12,8 +13,9 @@ import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
+from logging.handlers import RotatingFileHandler
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,6 +25,8 @@ from pydantic import BaseModel, Field
 MEDIA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".webm", ".mov", ".mkv"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 DEFAULT_TAGS = {"version": 1, "groups": [], "tags": []}
+APP_ROOT = Path(__file__).parent.parent
+ERROR_LOG_PATH = APP_ROOT / "logs" / "errors.log"
 
 
 class TagsUpdate(BaseModel):
@@ -31,6 +35,11 @@ class TagsUpdate(BaseModel):
 
 class CommentUpdate(BaseModel):
     comment: str = ""
+
+
+class DetailsUpdate(BaseModel):
+    comment: str = ""
+    link: str = ""
 
 
 class TagCreate(BaseModel):
@@ -76,8 +85,31 @@ class LibraryState:
 
 
 state = LibraryState()
+asset_write_lock = threading.RLock()
 app = FastAPI(title="Reference Library")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["*"], allow_headers=["*"])
+
+error_logger = logging.getLogger("reference_library.errors")
+error_logger.setLevel(logging.ERROR)
+error_logger.propagate = False
+if not error_logger.handlers:
+    try:
+        ERROR_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(ERROR_LOG_PATH, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        error_logger.addHandler(handler)
+    except OSError:
+        # A read-only installation must not prevent the local server from starting.
+        pass
+
+
+@app.middleware("http")
+async def log_unhandled_errors(request: Request, call_next: Any) -> Any:
+    try:
+        return await call_next(request)
+    except Exception:
+        error_logger.exception("Unhandled error during %s %s", request.method, request.url.path)
+        raise
 
 
 def atomic_json_write(path: Path, value: Any) -> None:
@@ -150,6 +182,31 @@ def public_asset(asset: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in asset.items() if key != "path"}
 
 
+def find_asset(asset_id: str) -> dict[str, Any] | None:
+    """Find an asset by current ID or stable runtime ID during an in-flight save."""
+    return state.assets.get(asset_id) or next((asset for asset in state.assets.values() if asset["runtimeId"] == asset_id), None)
+
+
+def persist_asset(asset_id: str, *, tags: list[str] | None = None, comment: str | None = None, link: str | None = None) -> dict[str, Any]:
+    """Atomically write one asset's metadata and return the refreshed asset."""
+    with asset_write_lock:
+        root = require_library()
+        asset = find_asset(asset_id)
+        if not asset or any(error.startswith("Duplicate UUID") for error in asset["errors"]):
+            raise HTTPException(404, "Asset unavailable for editing")
+        new_id = asset["id"] if not asset["id"].startswith("runtime-") else str(uuid.uuid4())
+        metadata = {
+            "version": 1,
+            "id": new_id,
+            "tags": asset["tags"] if tags is None else tags,
+            "comment": asset["comment"] if comment is None else comment,
+            "link": asset["link"] if link is None else link,
+        }
+        atomic_json_write(Path(f"{asset['path']}.meta.json"), metadata)
+        scan_library(root)
+        return public_asset(state.assets[new_id])
+
+
 def is_animated_gif(path: Path) -> bool:
     if path.suffix.lower() != ".gif":
         return False
@@ -180,19 +237,20 @@ def scan_library(root: Path) -> None:
             continue
         relative = path.relative_to(root).as_posix()
         runtime_id = "runtime-" + hashlib.sha256(relative.encode()).hexdigest()[:20]
-        asset_id, tags_for_asset, comment, errors = runtime_id, [], "", []
+        asset_id, tags_for_asset, comment, link, errors = runtime_id, [], "", "", []
         meta_path = Path(f"{path}.meta.json")
         if meta_path.exists():
             try:
                 metadata = read_json(meta_path)
                 if not isinstance(metadata, dict) or metadata.get("version") != 1:
                     errors.append("Unsupported metadata version")
-                elif not isinstance(metadata.get("id"), str) or not isinstance(metadata.get("tags"), list) or ("comment" in metadata and not isinstance(metadata["comment"], str)):
+                elif not isinstance(metadata.get("id"), str) or not isinstance(metadata.get("tags"), list) or ("comment" in metadata and not isinstance(metadata["comment"], str)) or ("link" in metadata and not isinstance(metadata["link"], str)):
                     errors.append("Invalid metadata structure")
                 else:
                     asset_id = metadata["id"]
                     tags_for_asset = [tag for tag in metadata["tags"] if isinstance(tag, str)]
                     comment = metadata.get("comment", "")
+                    link = metadata.get("link", "")
                     unknown = [tag for tag in tags_for_asset if tag not in tag_ids]
                     if unknown:
                         errors.append("Unknown tag ID: " + ", ".join(unknown))
@@ -209,7 +267,7 @@ def scan_library(root: Path) -> None:
             "id": asset_key, "runtimeId": runtime_id, "relativePath": relative, "name": path.name,
             "kind": "image" if path.suffix.lower() in IMAGE_EXTENSIONS else "video", "tags": tags_for_asset,
             "isAnimatedGif": is_animated_gif(path), "addedAt": path.stat().st_ctime,
-            "comment": comment, "untagged": not tags_for_asset, "errors": errors, "path": path,
+            "comment": comment, "link": link, "untagged": not tags_for_asset, "errors": errors, "path": path,
         }
     for sidecar in root.rglob("*.meta.json"):
         if ".library" in sidecar.relative_to(root).parts:
@@ -317,33 +375,38 @@ def get_asset(asset_id: str) -> dict[str, Any]:
 
 @app.put("/api/assets/{asset_id}/tags")
 def update_asset_tags(asset_id: str, body: TagsUpdate) -> dict[str, Any]:
-    root = require_library()
-    asset = state.assets.get(asset_id)
+    asset = find_asset(asset_id)
     if not asset or any(error.startswith("Duplicate UUID") for error in asset["errors"]):
         raise HTTPException(404, "Asset unavailable for editing")
     available = {tag.get("id") for tag in state.tags["tags"] if isinstance(tag, dict)}
     if len(body.tags) != len(set(body.tags)) or not set(body.tags).issubset(available):
         raise HTTPException(400, "Tags must be unique known tag IDs")
-    new_id = asset_id if not asset_id.startswith("runtime-") else str(uuid.uuid4())
-    metadata = {"version": 1, "id": new_id, "tags": body.tags, "comment": asset["comment"]}
-    atomic_json_write(Path(f"{asset['path']}.meta.json"), metadata)
-    scan_library(root)
-    return public_asset(state.assets[new_id])
+    return persist_asset(asset_id, tags=body.tags)
 
 
 @app.put("/api/assets/{asset_id}/comment")
 def update_asset_comment(asset_id: str, body: CommentUpdate) -> dict[str, Any]:
-    root = require_library()
-    asset = state.assets.get(asset_id)
+    asset = find_asset(asset_id)
     if not asset or any(error.startswith("Duplicate UUID") for error in asset["errors"]):
         raise HTTPException(404, "Asset unavailable for editing")
     if len(body.comment) > 10_000:
         raise HTTPException(400, "Comment is too long")
-    new_id = asset_id if not asset_id.startswith("runtime-") else str(uuid.uuid4())
-    metadata = {"version": 1, "id": new_id, "tags": asset["tags"], "comment": body.comment}
-    atomic_json_write(Path(f"{asset['path']}.meta.json"), metadata)
-    scan_library(root)
-    return public_asset(state.assets[new_id])
+    return persist_asset(asset_id, comment=body.comment)
+
+
+@app.put("/api/assets/{asset_id}/details")
+def update_asset_details(asset_id: str, body: DetailsUpdate) -> dict[str, Any]:
+    asset = find_asset(asset_id)
+    if not asset or any(error.startswith("Duplicate UUID") for error in asset["errors"]):
+        raise HTTPException(404, "Asset unavailable for editing")
+    if len(body.comment) > 10_000:
+        raise HTTPException(400, "Comment is too long")
+    link = body.link.strip()
+    if len(link) > 2_000:
+        raise HTTPException(400, "Link is too long")
+    if link and not link.lower().startswith(("https://", "http://")):
+        raise HTTPException(400, "Link must start with http:// or https://")
+    return persist_asset(asset_id, comment=body.comment, link=link)
 
 
 @app.get("/api/tags")
@@ -404,7 +467,7 @@ def merge_tag(tag_id: str, body: TagMerge) -> dict[str, str]:
     try:
         for asset in affected:
             merged_tags = list(dict.fromkeys(body.targetTagId if value == tag_id else value for value in asset["tags"]))
-            metadata = {"version": 1, "id": asset["id"], "tags": merged_tags, "comment": asset["comment"]}
+            metadata = {"version": 1, "id": asset["id"], "tags": merged_tags, "comment": asset["comment"], "link": asset["link"]}
             atomic_json_write(Path(f"{asset['path']}.meta.json"), metadata)
         state.tags["tags"] = [item for item in state.tags["tags"] if item.get("id") != tag_id]
         _, tags_path = library_paths(root)
