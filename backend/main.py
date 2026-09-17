@@ -5,8 +5,6 @@ import json
 import logging
 import os
 import re
-import shutil
-import subprocess
 import threading
 import time
 import tempfile
@@ -576,32 +574,6 @@ def media(asset_id: str):
     if not asset:
         raise HTTPException(404, "Asset not found")
     return FileResponse(asset["path"])
-
-
-def thumbnail_path(asset_id: str) -> Path:
-    root = require_library()
-    cache_id = hashlib.sha256(str(root).encode()).hexdigest()[:16]
-    base = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".reference-library"))
-    return base / "ReferenceLibrary" / "cache" / cache_id / "thumbnails" / f"{asset_id}.jpg"
-
-
-@app.get("/api/thumbnails/{asset_id}")
-def thumbnail(asset_id: str):
-    asset = find_asset(asset_id)
-    if not asset or asset["kind"] != "video":
-        raise HTTPException(404, "Video not found")
-    # Keep using an existing thumbnail cache after a temporary asset ID becomes a UUID.
-    output = thumbnail_path(asset["id"])
-    if not output.exists():
-        ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg:
-            raise HTTPException(404, "ffmpeg is not available")
-        output.parent.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run([ffmpeg, "-y", "-ss", "00:00:01", "-i", str(asset["path"]), "-frames:v", "1", "-vf", "scale=480:-2", str(output)], capture_output=True, timeout=45)
-        if result.returncode != 0 or not output.exists():
-            output.unlink(missing_ok=True)
-            raise HTTPException(422, "Could not create video thumbnail")
-    return FileResponse(output, media_type="image/jpeg")
 
 
 @app.post("/api/shutdown")

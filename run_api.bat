@@ -5,7 +5,7 @@ set "PYTHON_EXE=%~1"
 set "APP_ROOT=%~2"
 
 cd /d "%APP_ROOT%"
-"%PYTHON_EXE%" -m uvicorn backend.main:app --port 8000
+"%PYTHON_EXE%" -m backend.run_api
 set "EXIT_CODE=%ERRORLEVEL%"
 
 if "%EXIT_CODE%"=="0" exit /b 0
