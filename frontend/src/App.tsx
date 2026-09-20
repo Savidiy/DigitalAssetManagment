@@ -32,6 +32,7 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [managerOpen, setManagerOpen] = useState(false);
   const [draft, setDraft] = useState<Omit<Tag, 'id'> & { id?: string }>({ name: '', groups: [], color: '#7c5cff', icon: '' });
+  const [copySourceTagId, setCopySourceTagId] = useState<string | null>(null);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupParent, setNewGroupParent] = useState('');
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
@@ -199,12 +200,13 @@ export default function App() {
     const assetId = current.runtimeId;
     detailsSaveTimer.current = window.setTimeout(() => { detailsSaveTimer.current = null; void saveDetails(assetId, next); }, 500);
   };
-  const openNewTag = () => { setDraft({ name: '', groups: [], color: '#7c5cff', icon: '' }); setManagerOpen(true); };
-  const editTag = (tag: Tag) => { setDraft({ ...tag, color: tag.color || '#7c5cff', icon: tag.icon || '' }); setManagerOpen(true); };
-  const copyTag = (tag: Tag) => { setDraft({ name: tag.name, groups: [...tag.groups], color: tag.color || '#7c5cff', icon: tag.icon || '' }); setManagerOpen(true); };
+  const openNewTag = () => { setCopySourceTagId(null); setDraft({ name: '', groups: [], color: '#7c5cff', icon: '' }); setManagerOpen(true); };
+  const editTag = (tag: Tag) => { setCopySourceTagId(null); setDraft({ ...tag, color: tag.color || '#7c5cff', icon: tag.icon || '' }); setManagerOpen(true); };
+  const copyTag = (tag: Tag) => { setCopySourceTagId(tag.id); setDraft({ name: tag.name, groups: [...tag.groups], color: tag.color || '#7c5cff', icon: tag.icon || '' }); setManagerOpen(true); };
   const mergeTags = async (sourceId: string, target: Tag) => {
     try {
       await request(`/tags/${encodeURIComponent(sourceId)}/merge`, { method: 'POST', body: JSON.stringify({ targetTagId: target.id }) });
+      setCopySourceTagId(null);
       setDraft({ name: '', groups: [], color: '#7c5cff', icon: '' });
       await reload();
     } catch (error) { showError(error); }
@@ -219,8 +221,13 @@ export default function App() {
     }
     const payload = { name: draft.name, groups: draft.groups, color: draft.color, icon: draft.icon };
     try {
-      const tag = draft.id ? await request<Tag>(`/tags/${encodeURIComponent(draft.id)}`, { method: 'PUT', body: JSON.stringify(payload) }) : await request<Tag>('/tags', { method: 'POST', body: JSON.stringify(payload) });
-      setTags(items => draft.id ? items.map(item => item.id === tag.id ? tag : item) : [...items, tag]);
+      const tag = draft.id ? await request<Tag>(`/tags/${encodeURIComponent(draft.id)}`, { method: 'PUT', body: JSON.stringify(payload) }) : await request<Tag>('/tags', { method: 'POST', body: JSON.stringify({ ...payload, insertAfterId: copySourceTagId }) });
+      setTags(items => {
+        if (draft.id) return items.map(item => item.id === tag.id ? tag : item);
+        const sourceIndex = copySourceTagId ? items.findIndex(item => item.id === copySourceTagId) : -1;
+        return sourceIndex < 0 ? [...items, tag] : [...items.slice(0, sourceIndex + 1), tag, ...items.slice(sourceIndex + 1)];
+      });
+      setCopySourceTagId(null);
       if (!keepFields || draft.id) setDraft({ name: '', groups: [], color: '#7c5cff', icon: '' });
     } catch (error) { showError(error); }
   };

@@ -42,6 +42,7 @@ class DetailsUpdate(BaseModel):
 
 class TagCreate(BaseModel):
     id: str | None = None
+    insertAfterId: str | None = None
     name: str
     groups: list[str] = Field(default_factory=list)
     color: str | None = None
@@ -428,7 +429,13 @@ def create_tag(body: TagCreate) -> dict[str, Any]:
     tag = {"id": tag_id, "name": body.name.strip(), "groups": body.groups, "color": color, "icon": icon}
     if not tag["name"]:
         raise HTTPException(400, "Tag name is required")
-    state.tags["tags"].append(tag)
+    if body.insertAfterId is None:
+        state.tags["tags"].append(tag)
+    else:
+        source_index = next((index for index, item in enumerate(state.tags["tags"]) if item.get("id") == body.insertAfterId), None)
+        if source_index is None:
+            raise HTTPException(400, "Tag to insert after was not found")
+        state.tags["tags"].insert(source_index + 1, tag)
     _, tags_path = library_paths(root)
     atomic_json_write(tags_path, state.tags)
     return tag
