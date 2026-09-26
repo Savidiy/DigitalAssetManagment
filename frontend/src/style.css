@@ -1,6 +1,9 @@
 :root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #e9e7e1; background: #171716; font-synthesis: none; }
 .manager-grid > .manager-column { align-self: start; will-change: transform; }
 .details { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; }.details .preview { position: sticky; top: 0; z-index: 2; }
+/* Keep previews proportional as the resizable details pane changes width. */
+.preview { max-height: none !important; display: block; }
+.preview img, .preview video { width: 100%; height: auto; max-width: none; max-height: none !important; }
 .tag-form { display: grid; grid-template-columns: minmax(0, 1fr) 74px 56px; gap: 7px; align-items: end; }.tag-form h3, .tag-form fieldset, .tag-form .tag-actions, .tag-form .delete-tag { grid-column: 1 / -1; }.tag-form > label { margin: 0; }.tag-form > label > input { margin: 5px 0 0; }.tag-form > label:nth-of-type(2) .helper { display: none; }.tag-form input[type=color] { width: 100%; }
 .manager .manager-new-tag { display: none; }
 .tag-list-actions { display: flex; gap: 6px; }

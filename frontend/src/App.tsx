@@ -76,7 +76,7 @@ export default function App() {
     setSortDirection(saved.sortDirection === 'desc' ? 'desc' : 'asc');
     setSearch(typeof saved.search === 'string' ? saved.search : '');
     setCardSize(typeof saved.cardSize === 'number' ? Math.max(110, Math.min(300, saved.cardSize)) : 160);
-    setDetailsWidth(typeof saved.detailsWidth === 'number' ? Math.max(260, Math.min(700, saved.detailsWidth)) : 350);
+    setDetailsWidth(typeof saved.detailsWidth === 'number' ? Math.max(260, saved.detailsWidth) : 350);
     setVideoVolume(typeof saved.videoVolume === 'number' ? Math.max(0, Math.min(1, saved.videoVolume)) : 1);
   };
 
@@ -263,7 +263,7 @@ export default function App() {
   };
   const resizeDetails = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!resizeStart) return;
-    setDetailsWidth(Math.max(260, Math.min(700, resizeStart.width + resizeStart.x - event.clientX)));
+    setDetailsWidth(Math.max(260, resizeStart.width + resizeStart.x - event.clientX));
   };
   const deleteTag = async () => {
     if (!draft.id || !window.confirm(`Delete tag “${draft.name}”? It must not be used by any asset.`)) return;
