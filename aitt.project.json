@@ -1,0 +1,7 @@
+{
+  "prefix": "DAM",
+  "mainBranch": "master",
+  "icon": "🗂️",
+  "color": "#0e7490",
+  "integrateCheck": "python -m compileall -q backend; if ($LASTEXITCODE) { exit $LASTEXITCODE }; Set-Location frontend; npm ci --no-audit --no-fund; if ($LASTEXITCODE) { exit $LASTEXITCODE }; npm run build"
+}
