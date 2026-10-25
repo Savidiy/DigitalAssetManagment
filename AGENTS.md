@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Общие правила агентов, протокол доски и роли — в AI Task Tracker: прочитай `../AiTaskTracker/AGENTS.md` (или `$env:AITT_HOME/AGENTS.md`). Ниже — только правила этого проекта.
+Общие правила агентов, протокол доски и роли — в AI Task Tracker: прочитай `AGENTS.md` репозитория AITT (`<AITT>` — папка `$env:AITT_HOME`, иначе запись `AITT` в `~/.aitt/projects.json`). Ниже — только правила этого проекта.
 
 ## Проект
 

@@ -1,12 +1,34 @@
 # Точка входа AI Task Tracker в этом репозитории: ./aitt.ps1 <команда доски> [параметры], например ./aitt.ps1 List.
 # AITT ищется по порядку: переменная окружения AITT_HOME; рядом с репозиторием (<папка репозитория>/../AiTaskTracker);
-# рядом с основной копией, если это git worktree (временная папка ревью или проверки); сам репозиторий, если это AITT.
+# в раскладке «папка проекта» (репозиторий лежит в контейнере <корень>/<Проект>/<Проект>-main, у коннектора в .../board/) —
+# <корень>/AiTaskTracker/AiTaskTracker-main; те же места для основной копии, если это git worktree (временная папка ревью или проверки);
+# запись AITT в реестре машины (~/.aitt/projects.json, AITT_PROJECTS); сам репозиторий, если это AITT.
 # Файл одинаков во всех проектах; его копирует в новый проект инструкция подключения (Docs/Projects.md в AITT).
+function Get-AittCandidates([string]$Repository) {
+    $parent = Split-Path -Parent $Repository
+    if (-not $parent) { return }
+    Join-Path $parent 'AiTaskTracker'
+    # Контейнер: репозиторий в <контейнер>, корень проектов — его родитель; у коннектора репозиторий C лежит ещё на уровень глубже, в board/.
+    $container = Split-Path -Parent $parent
+    if ($container) { Join-Path $container 'AiTaskTracker/AiTaskTracker-main' }
+    $root = if ($container) { Split-Path -Parent $container }
+    if ($root) { Join-Path $root 'AiTaskTracker/AiTaskTracker-main' }
+}
+function Get-RegisteredAitt {
+    $registry = if ($env:AITT_PROJECTS) { $env:AITT_PROJECTS } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.aitt/projects.json' }
+    try {
+        if (Test-Path -LiteralPath $registry) {
+            $entry = (Get-Content -LiteralPath $registry -Raw | ConvertFrom-Json).projects.AITT
+            if ($entry) { [string]$entry }
+        }
+    } catch { }
+}
 $candidates = if ($env:AITT_HOME) { @($env:AITT_HOME) } else {
-    @(Join-Path (Split-Path -Parent $PSScriptRoot) 'AiTaskTracker')
+    Get-AittCandidates $PSScriptRoot
     # Общая папка .git у worktree — в основной копии; у обычного репозитория совпадает с его собственной.
     $commonDir = & git -C $PSScriptRoot rev-parse --path-format=absolute --git-common-dir 2>$null
-    if ($LASTEXITCODE -eq 0 -and $commonDir) { Join-Path (Split-Path -Parent (Split-Path -Parent $commonDir)) 'AiTaskTracker' }
+    if ($LASTEXITCODE -eq 0 -and $commonDir) { Get-AittCandidates (Split-Path -Parent $commonDir) }
+    Get-RegisteredAitt
     $PSScriptRoot
 }
 $taskBoard = $candidates | ForEach-Object { Join-Path $_ 'Tools/TaskBoard.ps1' } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
@@ -65,8 +87,19 @@ function ConvertTo-TaskBoardArguments([string[]]$Tokens) {
     }
     return @{ Named = $named; Positional = $positional.ToArray() }
 }
+# -ProjectRoot точка входа задаёт сама (папка этого файла): переданное снаружи значение молча подменялось бы, и команда
+# уходила бы на доску этой копии (AITT-432: New -ProjectRoot <другой проект> завёл карточки на доске AITT). Поэтому отказ.
+function Assert-NoProjectRootArgument([object[]]$Tokens) {
+    $parameters = (Get-Command -Name $taskBoard).Parameters
+    foreach ($token in $Tokens) {
+        if ("$token" -match '(?s)^[-–—―]([A-Za-z_]\w*)(?::|$)' -and (Resolve-TaskBoardParameter $parameters $Matches[1]).Name -eq 'ProjectRoot') {
+            throw "aitt.ps1 does not accept -ProjectRoot: the project is the repository this aitt.ps1 lies in ($PSScriptRoot). Run ./aitt.ps1 from the main copy of the needed project, or use the board command server (aitt_* with 'project')."
+        }
+    }
+}
 # Ошибка привязки параметров при вызове через & не завершает скрипт сама: без catch код выхода был бы 0.
 try {
+    Assert-NoProjectRootArgument $args
     $processArguments = Get-ProcessArguments $args
     if ($null -eq $processArguments) {
         & $taskBoard @args -ProjectRoot $PSScriptRoot
