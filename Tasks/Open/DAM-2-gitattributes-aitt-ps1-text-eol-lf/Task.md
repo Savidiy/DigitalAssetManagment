@@ -39,6 +39,7 @@ Tool developer.
 ## Входные артефакты
 
 - Пакет AITT-744 (`Outputs/CopyUpdate.md`, `Outputs/CoordinatorRequests.md`).
+- Пакет AITT-744 лежит на доске проекта AITT (не DAM); если недоступен — задача исполнима и без него.
 
 ## Выходные артефакты
 
