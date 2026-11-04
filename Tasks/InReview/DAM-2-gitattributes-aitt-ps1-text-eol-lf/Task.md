@@ -2,16 +2,16 @@
 id: DAM-2
 title: "Добавить в .gitattributes правило /aitt.ps1 text eol=lf"
 executor: Claude
-executor_model: unknown
-executor_effort: unknown
+executor_model: claude-sonnet-5-5
+executor_effort: medium
 reviewer: null
 reviewer_model: null
 reviewer_effort: null
 milestone: ""
 branch: task/DAM-2-dobavit-v-gitattributes-pravilo-aitt-ps1
 unity_editor_lock: false
-unity_instance: DigitalAssetManagment-agent-1
-machine: SAVIDIY-NOTE
+unity_instance: null
+machine: null
 dependencies: []
 related: ['AITT-744']
 continues: []
@@ -19,8 +19,8 @@ moved_from: []
 epics: []
 not_before: null
 created: 2026-11-02
-submission_commit: null
-submitted_at: null
+submission_commit: 1c80fa3256c4a6d4c471b770eb3141c62ca5f0c5
+submitted_at: 2026-11-04T22:56:50+03:00
 ---
 ## Цель
 
@@ -63,7 +63,7 @@ Tool developer.
 
 ## Отчёт исполнителя
 
-- Commit:
-- Что изменено:
-- Как проверено:
-- Проблемы или решения, требующие человека:
+- Commit: 1c80fa3256c4a6d4c471b770eb3141c62ca5f0c5
+- Что изменено: Commit: 6bafabc. Изменено: добавлен .gitattributes с единственной строкой `/aitt.ps1 text eol=lf`. aitt.ps1 в индексе уже был LF (i/lf), перенормализация не потребовала изменений.
+- Как проверено: `git add --renormalize aitt.ps1` — без предупреждений про aitt.ps1 (`git ls-files --eol`: i/lf w/lf attr/text eol=lf). `git diff --cached --check` — чисто. `aitt_validate DAM` — «Task board is valid». Предупреждение autocrlf касалось только самого .gitattributes в рабочей копии; в индексе он LF.
+- Проблемы или решения, требующие человека: нет
