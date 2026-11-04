@@ -1,17 +1,17 @@
 ---
 id: DAM-2
 title: "Добавить в .gitattributes правило /aitt.ps1 text eol=lf"
-executor: null
-executor_model: null
-executor_effort: null
+executor: Claude
+executor_model: unknown
+executor_effort: unknown
 reviewer: null
 reviewer_model: null
 reviewer_effort: null
 milestone: ""
-branch: null
+branch: task/DAM-2-dobavit-v-gitattributes-pravilo-aitt-ps1
 unity_editor_lock: false
-unity_instance: null
-machine: null
+unity_instance: DigitalAssetManagment-agent-1
+machine: SAVIDIY-NOTE
 dependencies: []
 related: ['AITT-744']
 continues: []
