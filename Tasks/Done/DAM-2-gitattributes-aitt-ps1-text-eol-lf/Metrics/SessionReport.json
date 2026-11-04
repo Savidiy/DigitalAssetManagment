@@ -1,0 +1,84 @@
+{
+  "format": "aitt-session-report/1",
+  "task": "DAM-2",
+  "title": "Добавить в .gitattributes правило /aitt.ps1 text eol=lf",
+  "basis": "API list price (Tools/ClaudePrices.json), not subscription billing; tokens and cost are recomputed from transcripts, not from the cumulative cost_usd of the journal",
+  "runs": [
+    {
+      "role": "executor",
+      "template": "executor-start",
+      "session_id": "164bc157-640e-4346-a852-70ae88808663",
+      "resume": false,
+      "outcome": "finished",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "effort": "medium",
+      "start": "2026-11-04T22:50:58+03:00",
+      "end": "2026-11-04T22:57:08+03:00",
+      "agent_seconds": 370,
+      "transcript": "read",
+      "requests": 10,
+      "tokens": {
+        "input": 20,
+        "cache_write": 36677,
+        "cache_read": 465491,
+        "output": 2405
+      },
+      "cost": {
+        "input": 4E-05,
+        "cache_write": 0.146708,
+        "cache_read": 0.046549,
+        "output": 0.02405,
+        "total": 0.217347
+      },
+      "by_model": [
+        {
+          "model": "claude-sonnet-5-5",
+          "usd": 0.217347
+        }
+      ],
+      "journal_requests": 10,
+      "journal_cost_usd": 0.2173471,
+      "n": 1
+    },
+    {
+      "role": "reviewer",
+      "template": "reviewer",
+      "session_id": "fe35c8f6-7ef1-47e6-94cd-ffec2807028c",
+      "resume": false,
+      "outcome": "finished",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "effort": "medium",
+      "start": "2026-11-04T23:06:05+03:00",
+      "end": "2026-11-04T23:07:28+03:00",
+      "agent_seconds": 82,
+      "transcript": "read",
+      "requests": 7,
+      "tokens": {
+        "input": 16,
+        "cache_write": 30522,
+        "cache_read": 232017,
+        "output": 1751
+      },
+      "cost": {
+        "input": 3.2E-05,
+        "cache_write": 0.122088,
+        "cache_read": 0.023202,
+        "output": 0.01751,
+        "total": 0.162832
+      },
+      "by_model": [
+        {
+          "model": "claude-sonnet-5-5",
+          "usd": 0.162832
+        }
+      ],
+      "journal_requests": 7,
+      "journal_cost_usd": 0.1628317,
+      "n": 2
+    }
+  ]
+}
