@@ -24,7 +24,7 @@ submitted_at: null
 ---
 ## Цель
 
-В `.gitattributes` репозитория DAM (DigitalAssetManagment) нет правила `/aitt.ps1 text eol=lf` (`Docs/Projects.md` AITT, «Подключить проект», п. 3): при коммите `aitt.ps1` git предупреждает `LF will be replaced by CRLF`. Добавить правило.
+Tool developer: в репозитории DAM (DigitalAssetManagment) нет `.gitattributes` (на `master` файла нет), поэтому правила `/aitt.ps1 text eol=lf` (`Docs/Projects.md` AITT, «Подключить проект», п. 3) тоже нет, и при коммите `aitt.ps1` git предупреждает `LF will be replaced by CRLF`. Создать `.gitattributes` в корне репозитория с одной строкой `/aitt.ps1 text eol=lf` (если файл к началу работы уже появился — дописать строку в конец, существующие строки не менять).
 
 ## Критерии готовности
 
