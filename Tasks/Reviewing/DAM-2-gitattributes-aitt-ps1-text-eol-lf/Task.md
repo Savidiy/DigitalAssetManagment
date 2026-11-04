@@ -4,9 +4,9 @@ title: "Добавить в .gitattributes правило /aitt.ps1 text eol=lf"
 executor: Claude
 executor_model: claude-sonnet-5-5
 executor_effort: medium
-reviewer: null
-reviewer_model: null
-reviewer_effort: null
+reviewer: Claude
+reviewer_model: claude-sonnet-5-5
+reviewer_effort: medium
 milestone: ""
 branch: task/DAM-2-dobavit-v-gitattributes-pravilo-aitt-ps1
 unity_editor_lock: false
