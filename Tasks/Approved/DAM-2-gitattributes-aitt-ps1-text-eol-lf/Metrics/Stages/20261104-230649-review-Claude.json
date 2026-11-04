@@ -1,0 +1,31 @@
+{
+  "stage": "review",
+  "role": "Reviewer",
+  "agent": "Claude",
+  "machine": "SAVIDIY-NOTE",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "session": "fe35c8f6-7ef1-47e6-94cd-ffec2807028c",
+  "from": "2026-11-04T23:06:05.931+03:00",
+  "to": "2026-11-04T23:06:39.161+03:00",
+  "calendar_time": "00:00:33",
+  "agent_time": "00:00:33",
+  "tokens": {
+    "input": 14,
+    "cache_write": 30153,
+    "cache_read": 191942,
+    "output": 1336
+  },
+  "cost_estimate": {
+    "usd": 0.153194,
+    "basis": "цена API, не подписка",
+    "unknown": []
+  },
+  "share": 1.0,
+  "accuracy": "actual",
+  "source": "Tools/ClaudeSessionMetrics.ps1",
+  "notes": "",
+  "recorded_at": "2026-11-04T23:06:49.2826019+03:00",
+  "last_model": "claude-sonnet-5-5",
+  "last_effort": "medium"
+}
