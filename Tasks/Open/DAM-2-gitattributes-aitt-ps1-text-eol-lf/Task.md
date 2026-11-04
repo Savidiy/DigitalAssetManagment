@@ -28,8 +28,9 @@ Tool developer: в репозитории DAM (DigitalAssetManagment) нет `.g
 
 ## Критерии готовности
 
-- [ ] В `.gitattributes` есть строка `/aitt.ps1 text eol=lf`.
-- [ ] `git add --renormalize aitt.ps1` не даёт предупреждения; `git diff --check` чисто.
+- [ ] В корне репозитория есть `.gitattributes`, содержащий строку `/aitt.ps1 text eol=lf`; других правил в нём нет.
+- [ ] `git add --renormalize aitt.ps1` не выводит предупреждения `LF will be replaced by CRLF`; если `aitt.ps1` в индексе имел CRLF, перенормализация (только окончания строк) закоммичена вместе с правилом.
+- [ ] `git diff --check` чисто; `aitt_validate` без ошибок.
 
 ## Роль исполнителя
 
